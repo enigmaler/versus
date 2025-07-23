@@ -14,3 +14,7 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+\n### Configuration\nThis app expects a DeepSeek API key. Build with:\n```
+flutter run --dart-define=DEEPSEEK_API_KEY=your_key_here
+```
+
