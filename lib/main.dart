@@ -430,16 +430,17 @@ class _QuranScreenState extends State<QuranScreen> {
 
   Future<void> _fetchSurahs() async {
     try {
-      final response = await http
-          .get(Uri.parse('https://api.quran.com/api/v4/chapters'));
+      final response =
+          await http.get(Uri.parse('https://api.quran.com/api/v4/chapters'));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
           _surahs = data['chapters'];
-          _loading = false;
         });
       }
     } catch (_) {
+      // ignore error for demo
+    } finally {
       setState(() => _loading = false);
     }
   }
@@ -503,10 +504,11 @@ class _SurahPageState extends State<SurahPage> {
         final data = jsonDecode(response.body);
         setState(() {
           _verses = data['verses'];
-          _loading = false;
         });
       }
     } catch (_) {
+      // ignore error for demo
+    } finally {
       setState(() => _loading = false);
     }
   }
