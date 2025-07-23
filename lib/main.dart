@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/services.dart'; // For copy to clipboard
+import 'package:intl/intl.dart';
+import 'package:geolocator/geolocator.dart';
 
 void main() => runApp(QuranChatApp());
 
@@ -31,8 +33,9 @@ class MainNav extends StatefulWidget {
 class _MainNavState extends State<MainNav> {
   int _selectedIndex = 0;
   final List<Widget> _pages = [
+    HomeScreen(),
+    QuranScreen(),
     ChatScreen(),
-    DailyVerseScreen(),
     FavoritesScreen(),
     ProfileScreen(),
   ];
@@ -50,9 +53,10 @@ class _MainNavState extends State<MainNav> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: _onItemTapped,
-        destinations: [
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.home), label: "Home"),
+          NavigationDestination(icon: Icon(Icons.menu_book), label: "Quran"),
           NavigationDestination(icon: Icon(Icons.chat_bubble), label: "Chat"),
-          NavigationDestination(icon: Icon(Icons.menu_book), label: "Daily Verse"),
           NavigationDestination(icon: Icon(Icons.favorite), label: "Favorites"),
           NavigationDestination(icon: Icon(Icons.person), label: "Profile"),
         ],
@@ -76,7 +80,8 @@ class _ChatScreenState extends State<ChatScreen> {
   static List<String> favorites = [];
 
   Future<String> askDeepSeek(String question) async {
-    const apiKey = 'sk-7d3f4c14e95146108642b0bdfeacc87b';
+    // API key is provided via --dart-define to avoid committing secrets.
+    const apiKey = String.fromEnvironment('DEEPSEEK_API_KEY');
     const apiUrl = 'https://api.deepseek.com/v1/chat/completions';
 
     final body = jsonEncode({
@@ -259,15 +264,17 @@ class _ChatMessage {
   _ChatMessage(this.text, this.isUser);
 }
 
-// ======= DAILY VERSE PAGE =======
-class DailyVerseScreen extends StatefulWidget {
+// ======= HOME PAGE =======
+class HomeScreen extends StatefulWidget {
   @override
-  State<DailyVerseScreen> createState() => _DailyVerseScreenState();
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _DailyVerseScreenState extends State<DailyVerseScreen> {
+class _HomeScreenState extends State<HomeScreen> {
   String _ayah = '“Indeed, prayer prohibits immorality and wrongdoing.” (Quran 29:45)';
   bool _loading = false;
+  Map<String, String>? _prayerTimes;
+  bool _prayerLoading = false;
 
   // For demo: Hardcoded ayahs. For real: fetch from Quran API!
   final List<String> ayahs = [
@@ -277,6 +284,52 @@ class _DailyVerseScreenState extends State<DailyVerseScreen> {
     '“Allah does not burden a soul beyond that it can bear.” (Quran 2:286)',
     '“Verily, with hardship comes ease.” (Quran 94:6)'
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchPrayerTimes();
+  }
+
+  Future<void> _fetchPrayerTimes() async {
+    setState(() => _prayerLoading = true);
+    try {
+      LocationPermission permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.deniedForever ||
+          permission == LocationPermission.denied) {
+        // Use Makkah coordinates as fallback
+        final lat = 21.3891;
+        final lng = 39.8579;
+        await _requestTimes(lat, lng);
+      } else {
+        final pos = await Geolocator.getCurrentPosition();
+        await _requestTimes(pos.latitude, pos.longitude);
+      }
+    } catch (_) {
+      // ignore errors for demo
+    }
+    setState(() => _prayerLoading = false);
+  }
+
+  Future<void> _requestTimes(double lat, double lng) async {
+    final now = DateTime.now();
+    final url =
+        'https://api.aladhan.com/v1/timings/${now.millisecondsSinceEpoch ~/ 1000}?latitude=$lat&longitude=$lng&method=2';
+    final res = await http.get(Uri.parse(url));
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body);
+      final timings = Map<String, dynamic>.from(data['data']['timings']);
+      setState(() {
+        _prayerTimes = {
+          'Fajr': timings['Fajr'],
+          'Dhuhr': timings['Dhuhr'],
+          'Asr': timings['Asr'],
+          'Maghrib': timings['Maghrib'],
+          'Isha': timings['Isha'],
+        };
+      });
+    }
+  }
 
   void _newAyah() async {
     setState(() => _loading = true);
@@ -290,8 +343,14 @@ class _DailyVerseScreenState extends State<DailyVerseScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final hour = DateTime.now().hour;
+    final greeting = hour < 12
+        ? 'Good morning'
+        : hour < 17
+            ? 'Good afternoon'
+            : 'Good evening';
     return Scaffold(
-      appBar: AppBar(title: Text('Daily Verse'), elevation: 1),
+      appBar: AppBar(title: Text('Home'), elevation: 1),
       body: Center(
         child: Card(
           color: Colors.teal[50],
@@ -303,6 +362,27 @@ class _DailyVerseScreenState extends State<DailyVerseScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                Text('Salam, $greeting!',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.teal[800])),
+                SizedBox(height: 20),
+                if (_prayerTimes != null)
+                  Column(
+                    children: [
+                      Text('Prayer Times',
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.teal[800],
+                              fontSize: 16)),
+                      SizedBox(height: 8),
+                      for (final e in _prayerTimes!.entries) Text('${e.key}: ${e.value}'),
+                      SizedBox(height: 20),
+                    ],
+                  )
+                else if (_prayerLoading)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: CircularProgressIndicator(),
+                  ),
                 Text("Today's Ayah",
                     style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal[800], fontSize: 18)),
                 SizedBox(height: 14),
@@ -328,6 +408,136 @@ class _DailyVerseScreenState extends State<DailyVerseScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ======= QURAN PAGE =======
+class QuranScreen extends StatefulWidget {
+  @override
+  State<QuranScreen> createState() => _QuranScreenState();
+}
+
+class _QuranScreenState extends State<QuranScreen> {
+  List<dynamic> _surahs = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchSurahs();
+  }
+
+  Future<void> _fetchSurahs() async {
+    try {
+      final response = await http
+          .get(Uri.parse('https://api.quran.com/api/v4/chapters'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _surahs = data['chapters'];
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Quran'), elevation: 1),
+      body: _loading
+          ? Center(child: CircularProgressIndicator())
+          : ListView.builder(
+              itemCount: _surahs.length,
+              itemBuilder: (context, index) {
+                final s = _surahs[index];
+                return ListTile(
+                  title: Text('${s['name_simple']}'),
+                  subtitle: Text('Ayahs: ${s['verses_count']}'),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => SurahPage(
+                        id: s['id'],
+                        name: s['name_simple'],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+class SurahPage extends StatefulWidget {
+  final int id;
+  final String name;
+
+  const SurahPage({required this.id, required this.name});
+
+  @override
+  State<SurahPage> createState() => _SurahPageState();
+}
+
+class _SurahPageState extends State<SurahPage> {
+  List<dynamic> _verses = [];
+  bool _loading = true;
+  bool _showTranslation = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchVerses();
+  }
+
+  Future<void> _fetchVerses() async {
+    try {
+      final url =
+          'https://api.quran.com/api/v4/quran/verses/uthmani?chapter_number=${widget.id}&translations=131';
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _verses = data['verses'];
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.name),
+        elevation: 1,
+        actions: [
+          IconButton(
+            icon: Icon(_showTranslation ? Icons.translate : Icons.language),
+            onPressed: () => setState(() => _showTranslation = !_showTranslation),
+          )
+        ],
+      ),
+      body: _loading
+          ? Center(child: CircularProgressIndicator())
+          : ListView.builder(
+              itemCount: _verses.length,
+              itemBuilder: (context, index) {
+                final v = _verses[index];
+                return ListTile(
+                  title: Text(v['text_uthmani'] ?? ''),
+                  subtitle: _showTranslation && v['translations'] != null && v['translations'].isNotEmpty
+                      ? Text(v['translations'][0]['text'] ?? '')
+                      : null,
+                );
+              },
+            ),
     );
   }
 }
